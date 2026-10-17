@@ -61,7 +61,9 @@ pub fn standard_registry(config_path: &Path, servers: Arc<Vec<ServerSpec>>) -> R
     let mut registry = Registry::new();
     registry.register(Box::new(config::ConfigProbe::new(config_path)));
     registry.register(Box::new(backend::BackendProbe::new(Arc::clone(&servers))));
-    registry.register(Box::new(credential::CredentialProbe));
+    registry.register(Box::new(credential::CredentialProbe::new(Arc::clone(
+        &servers,
+    ))));
     registry.register(Box::new(handshake::HandshakeProbe::new(servers)));
     registry
 }

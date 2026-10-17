@@ -6,7 +6,11 @@
 
 // Integration tests assert on real process output; panicking with a readable
 // message is the intended failure mode here.
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::assertions_on_constants)]
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::assertions_on_constants
+)]
 
 use std::path::Path;
 use std::process::Command;
@@ -64,8 +68,17 @@ fn missing_config_fails_with_a_remediation_and_exit_one() {
 fn empty_config_warns_but_exits_zero() {
     let dir = tmp("empty");
     let path = write_config(&dir, r#"{"model":"some/model"}"#);
+    // Scoped to one probe on purpose: the exit status of the whole report
+    // would otherwise depend on whether the machine running the test has `gh`
+    // installed and authenticated -- which is exactly what broke this test on
+    // CI, where the runner ships an unauthenticated gh.
     let out = bin()
-        .args(["--config", path.to_str().expect("utf8")])
+        .args([
+            "--config",
+            path.to_str().expect("utf8"),
+            "--only",
+            "config.",
+        ])
         .output()
         .expect("run binary");
     assert_eq!(out.status.code(), Some(0), "a warning is not a failure");
@@ -82,7 +95,13 @@ fn strict_turns_warnings_into_a_nonzero_exit() {
     let dir = tmp("strict");
     let path = write_config(&dir, r#"{"model":"some/model"}"#);
     let out = bin()
-        .args(["--config", path.to_str().expect("utf8"), "--strict"])
+        .args([
+            "--config",
+            path.to_str().expect("utf8"),
+            "--strict",
+            "--only",
+            "config.",
+        ])
         .output()
         .expect("run binary");
     assert_eq!(
@@ -101,13 +120,23 @@ fn json_output_is_machine_readable() {
         r#"{"mcp":{"servers":{"ctx7":{"type":"remote","url":"https://example.test"}}}}"#,
     );
     let out = bin()
-        .args(["--config", path.to_str().expect("utf8"), "--format", "json"])
+        .args([
+            "--config",
+            path.to_str().expect("utf8"),
+            "--format",
+            "json",
+            "--only",
+            "config.",
+        ])
         .output()
         .expect("run binary");
     let value: serde_json::Value =
         serde_json::from_slice(&out.stdout).expect("stdout must be valid JSON");
     let findings = value["findings"].as_array().expect("findings array");
-    assert!(findings.iter().any(|_| true), "expected at least one finding");
+    assert!(
+        findings.iter().any(|_| true),
+        "expected at least one finding"
+    );
     assert!(findings.iter().all(|f| f["check"].is_string()));
     // optional fields must be omitted, never null, so consumers can rely on
     // their absence
@@ -158,7 +187,10 @@ fn only_filter_restricts_the_report_to_matching_checks() {
     let value: serde_json::Value =
         serde_json::from_slice(&out.stdout).expect("stdout must be valid JSON");
     let findings = value["findings"].as_array().expect("findings array");
-    assert!(findings.iter().any(|_| true), "expected at least one finding");
+    assert!(
+        findings.iter().any(|_| true),
+        "expected at least one finding"
+    );
     assert!(
         findings
             .iter()
@@ -173,7 +205,12 @@ fn report_ends_with_a_count_summary() {
     let dir = tmp("summary");
     let path = write_config(&dir, r#"{"model":"some/model"}"#);
     let out = bin()
-        .args(["--config", path.to_str().expect("utf8")])
+        .args([
+            "--config",
+            path.to_str().expect("utf8"),
+            "--only",
+            "config.",
+        ])
         .output()
         .expect("run binary");
     let text = String::from_utf8_lossy(&out.stdout);

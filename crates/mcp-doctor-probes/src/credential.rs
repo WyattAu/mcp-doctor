@@ -20,8 +20,36 @@ use mcp_doctor_core::{Ctx, Finding, Probe, ProbeError, Severity};
 /// a read-only token: the agent creates branches and pushes.
 const REQUIRED_SCOPES: &[&str] = &["repo", "workflow", "read:org"];
 
+/// Signals in a server's argv that it consumes a GitHub credential.
+const GITHUB_MARKERS: &[&str] = &["github-mcp-server", "gh auth", "server-github"];
+
+/// Does any declared server actually need a GitHub credential?
+///
+/// A credential check on a host that has no GitHub-backed server reports a
+/// failure for a condition nobody cares about, which trains the reader to
+/// ignore the report. Absence of a consumer is a `Skip`, never a `Fail`.
+fn github_consumer(servers: &[crate::ServerSpec]) -> bool {
+    servers.iter().any(|spec| match spec {
+        crate::ServerSpec::Local { argv, .. } => {
+            let joined = argv.join(" ");
+            GITHUB_MARKERS.iter().any(|m| joined.contains(m))
+        }
+        crate::ServerSpec::Remote { name, .. } => name == "github",
+    })
+}
+
 /// Proves a GitHub credential is present, authenticating, and scoped.
-pub struct CredentialProbe;
+pub struct CredentialProbe {
+    servers: std::sync::Arc<Vec<crate::ServerSpec>>,
+}
+
+impl Default for CredentialProbe {
+    fn default() -> Self {
+        Self {
+            servers: std::sync::Arc::new(Vec::new()),
+        }
+    }
+}
 
 impl Probe for CredentialProbe {
     fn id(&self) -> &'static str {
@@ -33,6 +61,17 @@ impl Probe for CredentialProbe {
     }
 
     fn run(&self, ctx: &Ctx) -> Result<Vec<Finding>, ProbeError> {
+        if !github_consumer(&self.servers) {
+            return Ok(vec![
+                Finding::new(
+                    self.id(),
+                    "gh-token",
+                    Severity::Skip,
+                    "no declared server consumes a GitHub credential",
+                )
+                .with_remediation("enable the github MCP server to check this"),
+            ]);
+        }
         let mut findings = present(ctx, self.id());
         if findings.iter().any(|f| f.severity == Severity::Fail)
             || findings.iter().any(|f| f.severity == Severity::Skip)
@@ -169,6 +208,13 @@ fn scopes(ctx: &Ctx, check: &str) -> Vec<Finding> {
     }
 }
 
+impl CredentialProbe {
+    #[must_use]
+    pub fn new(servers: std::sync::Arc<Vec<crate::ServerSpec>>) -> Self {
+        Self { servers }
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::expect_used,
@@ -177,7 +223,22 @@ fn scopes(ctx: &Ctx, check: &str) -> Vec<Finding> {
 )]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
     use crate::testing::{CtxBuilder, FakeRunner};
+
+    /// A server that consumes a GitHub credential, as the fleet's config has.
+    fn github_servers() -> Arc<Vec<crate::ServerSpec>> {
+        Arc::new(vec![crate::ServerSpec::Local {
+            name: "github".into(),
+            argv: vec![
+                "/bin/bash".into(),
+                "-c".into(),
+                "gh auth token; exec github-mcp-server stdio".into(),
+            ],
+            disabled: false,
+        }])
+    }
 
     fn healthy() -> FakeRunner {
         FakeRunner::new()
@@ -199,7 +260,9 @@ mod tests {
                     .with_ok("gh auth status", "Token scopes: repo, workflow, read:org"),
             )
             .build();
-        let findings = CredentialProbe.run(&ctx).expect("findings");
+        let findings = CredentialProbe::new(github_servers())
+            .run(&ctx)
+            .expect("findings");
         let id = findings
             .iter()
             .find(|f| f.subject == "gh-identity")
@@ -210,7 +273,9 @@ mod tests {
     #[test]
     fn healthy_credential_all_passes_and_never_echoes_the_token() {
         let ctx = CtxBuilder::new("x").runner(healthy()).build();
-        let findings = CredentialProbe.run(&ctx).expect("findings");
+        let findings = CredentialProbe::new(github_servers())
+            .run(&ctx)
+            .expect("findings");
         assert_eq!(findings.len(), 3);
         assert!(findings.iter().all(|f| f.severity == Severity::Pass));
         let rendered: String = findings.iter().fold(String::new(), |mut acc, f| {
@@ -233,7 +298,9 @@ mod tests {
                     .with_fail("gh api user --jq .login", 1, "HTTP 401: Bad credentials"),
             )
             .build();
-        let findings = CredentialProbe.run(&ctx).expect("findings");
+        let findings = CredentialProbe::new(github_servers())
+            .run(&ctx)
+            .expect("findings");
         let id = findings
             .iter()
             .find(|f| f.subject == "gh-identity")
@@ -255,7 +322,9 @@ mod tests {
                     .with_ok("gh auth status", "Token scopes: 'gist', 'repo'"),
             )
             .build();
-        let findings = CredentialProbe.run(&ctx).expect("findings");
+        let findings = CredentialProbe::new(github_servers())
+            .run(&ctx)
+            .expect("findings");
         let scopes = findings
             .iter()
             .find(|f| f.subject == "gh-scopes")
@@ -270,7 +339,24 @@ mod tests {
     #[test]
     fn absent_gh_is_skipped_not_failed() {
         let ctx = CtxBuilder::new("x").build(); // nothing stubbed
-        let findings = CredentialProbe.run(&ctx).expect("findings");
+        let findings = CredentialProbe::new(github_servers())
+            .run(&ctx)
+            .expect("findings");
+        assert_eq!(findings[0].severity, Severity::Skip);
+    }
+
+    #[test]
+    fn a_fleet_with_no_github_server_skips_instead_of_failing() {
+        // The bug this guards: a host with `gh` installed but unauthenticated
+        // and no GitHub-backed server used to report a Fail, which made the
+        // whole report exit 1 for a condition nobody cared about.
+        let ctx = CtxBuilder::new("x").build();
+        let probes = CredentialProbe::new(Arc::new(vec![crate::ServerSpec::Remote {
+            name: "context7".into(),
+            url: "https://example.test".into(),
+        }]));
+        let findings = probes.run(&ctx).expect("findings");
+        assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Skip);
     }
 
@@ -279,7 +365,9 @@ mod tests {
         let ctx = CtxBuilder::new("x")
             .runner(FakeRunner::new().with_ok("gh auth token", "   \n"))
             .build();
-        let findings = CredentialProbe.run(&ctx).expect("findings");
+        let findings = CredentialProbe::new(github_servers())
+            .run(&ctx)
+            .expect("findings");
         assert_eq!(findings[0].severity, Severity::Fail);
     }
 }
