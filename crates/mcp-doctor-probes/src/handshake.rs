@@ -195,6 +195,56 @@ mod tests {
         );
     }
 
+    /// A stand-in for an MCP server, built from `sh`. Real subprocess, real
+    /// stdio, canned protocol response: the paths under test are the ones that
+    /// fail in production (silent server, wrong-shaped reply, missing binary).
+    fn fake_server(script: &str) -> Vec<String> {
+        vec!["-c".to_string(), script.to_string()]
+    }
+
+    const OK_RESPONSE: &str = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","#,
+        r#""serverInfo":{"name":"fake","version":"0.0.1"}}}"#,
+        "\n"
+    );
+
+    #[test]
+    fn a_server_that_answers_with_server_info_passes() {
+        // Reply first, drain later: the handshake deliberately never closes
+        // stdin, so a stand-in that reads stdin before replying would block
+        // forever and the test would measure the test, not the code.
+        let script = format!("printf '{OK_RESPONSE}'");
+        let out = handshake("sh", &fake_server(&script), Duration::from_secs(10));
+        assert!(out.is_ok(), "expected a pass, got {out:?}");
+        assert!(out.expect("pass").contains("fake"));
+    }
+
+    #[test]
+    fn a_server_that_exits_without_answering_fails_after_the_timeout() {
+        let out = handshake("sh", &fake_server("exit 0"), Duration::from_secs(2));
+        let err = out.expect_err("must not pass");
+        assert!(err.contains("no initialize response"), "got {err}");
+    }
+
+    #[test]
+    fn a_server_that_answers_the_wrong_shape_fails() {
+        let script = "printf '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\\n'";
+        let out = handshake("sh", &fake_server(script), Duration::from_secs(10));
+        let err = out.expect_err("must not pass");
+        assert!(err.contains("not with serverInfo"), "got {err}");
+    }
+
+    #[test]
+    fn a_missing_binary_reports_a_spawn_failure() {
+        let err = handshake(
+            "/nonexistent/definitely-not-here",
+            &[],
+            Duration::from_secs(1),
+        )
+        .expect_err("must not pass");
+        assert!(err.contains("spawn failed"), "got {err}");
+    }
+
     #[test]
     fn truncates_without_panicking_on_multibyte() {
         assert_eq!(truncate("a\u{e9}\u{4f60}bc", 3), "a\u{e9}\u{4f60}...");
