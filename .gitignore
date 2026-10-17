@@ -1,2 +1,6 @@
 target/
-Cargo.lock
+
+# Cargo.lock is intentionally COMMITTED: this workspace ships a binary
+# (mcp-doctor), so the dependency graph must be reproducible. The template
+# .gitignore ignores it because it targets library-only crates; both sibling
+# repos that publish binaries (axum-stack, clawdius) commit theirs.
