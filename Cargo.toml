@@ -1,0 +1,48 @@
+# Workspace root for mcp-doctor.
+#
+# Version policy (engineering-standards rule 4: one source of truth per
+# concern): every dependency version lives in [workspace.dependencies].
+# Crates reference it with `workspace = true` so a bump is one edit and
+# cannot drift between crates.
+#
+# Architecture: `core` is the pure domain (findings, probe contract,
+# registry, rendering) and takes no I/O dependencies of its own;
+# `probes` holds concrete checks behind the core trait; `cli` is a thin
+# shell that wires them together. Nothing in `core` knows about MCP
+# servers, and nothing in `cli` knows how a check works.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/mcp-doctor-core",
+    "crates/mcp-doctor-probes",
+    "crates/mcp-doctor-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/WyattAu/mcp-doctor"
+authors = ["WyattAu <wyatt@wyattau.com>"]
+keywords = ["mcp", "opencode", "audit", "fleet", "dx"]
+categories = ["development-tools::debugging", "command-line-utilities"]
+exclude = ["/target"]
+
+[workspace.dependencies]
+mcp-doctor-core = { path = "crates/mcp-doctor-core", version = "0.1.0" }
+mcp-doctor-probes = { path = "crates/mcp-doctor-probes", version = "0.1.0" }
+
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+pedantic = { level = "warn", priority = -1 }

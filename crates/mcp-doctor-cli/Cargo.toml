@@ -1,0 +1,25 @@
+[package]
+name = "mcp-doctor-cli"
+description = "CLI front-end for mcp-doctor — audits an OpenCode MCP fleet"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
+
+[[bin]]
+name = "mcp-doctor"
+path = "src/main.rs"
+
+[dependencies]
+mcp-doctor-core = { workspace = true }
+mcp-doctor-probes = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
