@@ -107,10 +107,17 @@ fn handshake(program: &str, args: &[String], timeout: Duration) -> Result<String
         r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
         "\n"
     );
-    stdin
-        .write_all(request.as_bytes())
-        .map_err(|e| format!("write failed: {e}"))?;
-    stdin.flush().map_err(|e| format!("flush failed: {e}"))?;
+    // Best-effort write. A server that answers before consuming its input
+    // (or exits immediately after answering) closes the pipe under us, and
+    // treating that as a handshake failure would report a working server as
+    // broken. The verdict comes from what the child said, not from whether
+    // the request landed; if nothing comes back, the timeout error says so.
+    let mut write_note = String::new();
+    if let Err(e) = stdin.write_all(request.as_bytes()) {
+        write_note = format!("(request not fully written: {e}) ");
+    } else if let Err(e) = stdin.flush() {
+        write_note = format!("(request not fully flushed: {e}) ");
+    }
     // Keep stdin open: closing it makes some servers exit before replying.
     std::mem::forget(stdin);
 
@@ -134,10 +141,13 @@ fn handshake(program: &str, args: &[String], timeout: Duration) -> Result<String
 
     match line {
         None => Err(format!(
-            "no initialize response within {}s",
+            "{}no initialize response within {}s",
+            write_note,
             timeout.as_secs()
         )),
-        Some(line) if line.contains("\"serverInfo\"") => Ok(truncate(line.trim(), 160)),
+        Some(line) if line.contains("\"serverInfo\"") => {
+            Ok(truncate(&format!("{}{}", write_note, line.trim()), 160))
+        }
         Some(line) => Err(format!(
             "responded, but not with serverInfo: {}",
             truncate(line.trim(), 120)
