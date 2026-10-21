@@ -4,6 +4,15 @@
 [cargo-vet]
 version = "0.10"
 
+[imports.bytecodealliance]
+url = "https://raw.githubusercontent.com/bytecodealliance/wasmtime/main/supply-chain/audits.toml"
+
+[imports.mozilla]
+url = "https://raw.githubusercontent.com/mozilla/supply-chain/main/audits.toml"
+
+[imports.zcash]
+url = "https://raw.githubusercontent.com/zcash/rust-ecosystem/main/supply-chain/audits.toml"
+
 [[exemptions.anstream]]
 version = "1.0.0"
 criteria = "safe-to-deploy"
@@ -42,10 +51,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.colorchoice]]
 version = "1.0.5"
-criteria = "safe-to-deploy"
-
-[[exemptions.heck]]
-version = "0.5.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.is_terminal_polyfill]]
@@ -110,10 +115,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.utf8parse]]
 version = "0.2.2"
-criteria = "safe-to-deploy"
-
-[[exemptions.windows-link]]
-version = "0.2.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.windows-sys]]
